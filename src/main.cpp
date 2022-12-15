@@ -35,7 +35,6 @@ MeshProcessor meshProcessor;
 
 Eigen::MatrixXd NoisyPoints;
 Eigen::MatrixXd OutlierPoints;
-Eigen::MatrixXd DenoisedPoints;
 Eigen::MatrixXd FloodPoints;
 
 Eigen::MatrixXd MC_V;
@@ -48,14 +47,13 @@ Eigen::VectorXd GridValues;
 
 PCD noisy_points;
 PCD outlier_points;
-PCD denoised_points;
 PCD flood_points;
 
 bool redraw = false;
 std::string input_file;
 int min_res = 10, max_res = 100;
 
-enum DisplayMode { NOISY_POINTS, POINT_WITHOUT_OUTLIERS, DENOISED_POINTS, GRID_POINTS, FLOOD_POINTS, MC_MESH, SMOOTH_MESH };
+enum DisplayMode { NOISY_POINTS, POINT_WITHOUT_OUTLIERS, GRID_POINTS, FLOOD_POINTS, MC_MESH, SMOOTH_MESH };
 DisplayMode display_mode = SMOOTH_MESH;
 
 //Tweakable parameters
@@ -72,7 +70,6 @@ void setPointsToVisualize(const Eigen::MatrixXd& points, const Eigen::Vector3d c
 void setMeshToShow(const Eigen::MatrixXd& V);
 void showNoisyPoints();
 void showPointsWithoutOutliers();
-void showDenoisedPoints();
 void showGridPoints();
 void showFloodPoints();
 void showMCMesh();
@@ -94,9 +91,6 @@ bool callback_pre_draw(Viewer& viewer) {
     break;
     case POINT_WITHOUT_OUTLIERS:
       showPointsWithoutOutliers();
-    break;
-    case DENOISED_POINTS:
-      showDenoisedPoints();
     break;
     case GRID_POINTS:
       showGridPoints();
@@ -135,23 +129,23 @@ void read_data(const std::string& path, PCD& points) {
   }
 }
 
-void denoise(const std::string& path_to_denoise, PCD& denoised_points) {
-  std::string denoised_file_name = "denoised.xyz";
-  try {
-    cout << "Calling Python-based score-denoise script..." << endl;
-    std::string command = std::string("cd ../ext/score-denoise && python test_single.py --input_xyz ../") 
-      + path_to_denoise + " --output_xyz ../../" + denoised_file_name;
-    int error_code = system(command.c_str());
-    cout << "Finished denoising!" << endl;
+// void denoise(const std::string& path_to_denoise, PCD& denoised_points) {
+//   std::string denoised_file_name = "denoised.xyz";
+//   try {
+//     cout << "Calling Python-based score-denoise script..." << endl;
+//     std::string command = std::string("cd ../ext/score-denoise && python test_single.py --input_xyz ../") 
+//       + path_to_denoise + " --output_xyz ../../" + denoised_file_name;
+//     int error_code = system(command.c_str());
+//     cout << "Finished denoising!" << endl;
 
-    //Read back the denoised point cloud
-    cout << "C++ takes over. Reading the denoised point cloud..." << endl;
-    denoised_points.clear();
-    read_data("../" + denoised_file_name, denoised_points);
-  } catch (const char* msg) {
-      std::cerr << msg << endl;
-  }
-}
+//     //Read back the denoised point cloud
+//     cout << "C++ takes over. Reading the denoised point cloud..." << endl;
+//     denoised_points.clear();
+//     read_data("../" + denoised_file_name, denoised_points);
+//   } catch (const char* msg) {
+//       std::cerr << msg << endl;
+//   }
+// }
 
 void slicePCD(open3d::geometry::PointCloud& pcd,
                      std::vector<long unsigned int>& index) {
@@ -212,10 +206,6 @@ void showPointsWithoutOutliers() {
   setPointsToVisualize(OutlierPoints, Eigen::Vector3d(0.6, 0, 0.0));
 }
 
-void showDenoisedPoints() {
-  setPointsToVisualize(DenoisedPoints, Eigen::Vector3d(0.6, 0, 0.0));
-}
-
 void showGridPoints() {
   Eigen::MatrixXd Color(GridPoints.rows(), 3);
   for(int i = 0; i < Color.rows(); i++) {
@@ -273,18 +263,6 @@ void runPipeline(const DisplayMode from) {
     cout << "Outlier removal: Successful." << endl;
   }
   
-  if(from <= DENOISED_POINTS) {
-    if(score_denoise) {
-      denoise(input_file, denoised_points);
-      DenoisedPoints = vec_to_eigen(denoised_points);
-      cout << "Denoising: Successful." << endl;
-    } else {
-      denoised_points = outlier_points;
-      DenoisedPoints = OutlierPoints;
-      cout << "Denoising: Skipped." << endl;
-    }
-  }
-  
   if(from <= FLOOD_POINTS) {
     int ri = resolution.x();
     bool success = false;
@@ -338,7 +316,7 @@ int main(int argc, char *argv[]) {
   menu.callback_draw_viewer_menu = [&]() {
     menu.draw_viewer_menu();
     if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if(ImGui::Combo("Display mode", (int*)(&display_mode), "NOISY_POINTS\0POINT_WITHOUT_OUTLIERS\0DENOISED_POINTS\0GRID_POINTS\0FLOOD_POINTS\0MC_MESH\0SMOOTH_MESH\0\0")) {
+      if(ImGui::Combo("Display mode", (int*)(&display_mode), "NOISY_POINTS\0POINT_WITHOUT_OUTLIERS\0GRID_POINTS\0FLOOD_POINTS\0MC_MESH\0SMOOTH_MESH\0\0")) {
         runPipeline((DisplayMode)0);
       }
     }
@@ -358,9 +336,6 @@ int main(int argc, char *argv[]) {
       // }
       if(ImGui::InputFloat("delta", &delta, 0.0f, 0.0f, "%.8f")) {
         runPipeline(SMOOTH_MESH);
-      }
-      if(ImGui::Checkbox("score-denoise", &score_denoise)) {
-        runPipeline(DENOISED_POINTS);
       }
       if(ImGui::SliderInt("nb neighbors", &nb_neighbors, 3, 64, "%d", 0)) {
         runPipeline(POINT_WITHOUT_OUTLIERS);

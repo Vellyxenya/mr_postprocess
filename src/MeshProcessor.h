@@ -144,7 +144,6 @@ public:
         }
         if(inner_points.size() == 0) {
             cout << "PCD SIZE: " << inner_points.size() << endl;
-            //cout << "Resolution is too small" << endl;
             return false;
         }
 
