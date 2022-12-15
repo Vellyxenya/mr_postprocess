@@ -1,0 +1,11 @@
+build
+release
+debug
+*.o
+*/.idea
+*/.vscode
+.DS_Store
+.vscode/
+data/
+*.zip
+*.ply
