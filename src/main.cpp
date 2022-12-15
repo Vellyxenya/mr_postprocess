@@ -49,14 +49,16 @@ PCD flood_points;
 
 bool redraw = false;
 std::string input_file;
+int min_res = 20, max_res = 120;
 
-enum DisplayMode { NOISY_POINTS, DENOISED_POINTS, FLOOD_POINTS, MC_MESH, SMOOTH_MESH };
+enum DisplayMode { NOISY_POINTS, DENOISED_POINTS, GRID_POINTS, FLOOD_POINTS, MC_MESH, SMOOTH_MESH };
 DisplayMode display_mode = SMOOTH_MESH;
 
 //Tweakable parameters
-int res = 85; //grid resolution
+int res = 60; //grid resolution
+int resx = res, resy = res, resz = res;
 float delta = 0.00005; //Controls the smoothing amount
-bool score_denoise = true;
+bool score_denoise = false;
 
 ///////////////////////////////
 
@@ -64,6 +66,7 @@ void setPointsToVisualize(const Eigen::MatrixXd& points, const Eigen::Vector3d c
 void setMeshToShow(const Eigen::MatrixXd& V);
 void showNoisyPoints();
 void showDenoisedPoints();
+void showGridPoints();
 void showFloodPoints();
 void showMCMesh();
 void showSmoothMesh();
@@ -84,6 +87,9 @@ bool callback_pre_draw(Viewer& viewer) {
     break;
     case DENOISED_POINTS:
       showDenoisedPoints();
+    break;
+    case GRID_POINTS:
+      showGridPoints();
     break;
     case FLOOD_POINTS:
       showFloodPoints();
@@ -151,8 +157,22 @@ void showDenoisedPoints() {
   setPointsToVisualize(DenoisedPoints, Eigen::Vector3d(0.6, 0, 0.0));
 }
 
+void showGridPoints() {
+  Eigen::MatrixXd Color(GridPoints.rows(), 3);
+  for(int i = 0; i < Color.rows(); i++) {
+    if(GridValues(i) < 0) {
+      Color.row(i) = Eigen::RowVector3d(0, 1, 0);
+    } else {
+      Color.row(i) = Eigen::RowVector3d(1, 0, 0);
+    }
+  }
+  viewer.data().clear();
+  viewer.data().add_points(GridPoints, Color);
+  viewer.core().align_camera_center(GridPoints);
+}
+
 void showFloodPoints() {
-  setPointsToVisualize(FloodPoints, Eigen::Vector3d(0.6, 0, 0.0));
+  setPointsToVisualize(FloodPoints, Eigen::Vector3d(0.6, 0, 0.3));
 }
 
 void setMeshToShow(const Eigen::MatrixXd& V) {
@@ -174,9 +194,12 @@ void showSmoothMesh() {
   setMeshToShow(SmoothV);
 }
 
+int nb_runs = 0;
 void runPipeline(const DisplayMode from) {
-  Eigen::Vector3d resolution(res, res, res);
-  cout << "==================== RUNNING PIPELINE =======================" << endl;
+  cout << nb_runs << ": ================== RUNNING PIPELINE =======================" << endl;
+  nb_runs++;
+
+  Eigen::Vector3d resolution(resx, resy, resz);
 
   if(from <= NOISY_POINTS) {
     read_data(input_file, noisy_points);
@@ -184,10 +207,16 @@ void runPipeline(const DisplayMode from) {
     cout << "Reading Points: Successful." << endl;
   }
   
-  if(from <= DENOISED_POINTS && score_denoise) {
-    denoise(input_file, denoised_points);
-    DenoisedPoints = vec_to_eigen(denoised_points);
-    cout << "Denoising: Successful." << endl;
+  if(from <= DENOISED_POINTS) {
+    if(score_denoise) {
+      denoise(input_file, denoised_points);
+      DenoisedPoints = vec_to_eigen(denoised_points);
+      cout << "Denoising: Successful." << endl;
+    } else {
+      denoised_points = noisy_points;
+      DenoisedPoints = NoisyPoints;
+      cout << "Denoising: Skipped." << endl;
+    }
   }
   
   if(from <= FLOOD_POINTS) {
@@ -203,12 +232,15 @@ void runPipeline(const DisplayMode from) {
   }
   
   if(from <= MC_MESH) {
+    cout << GridPoints.rows() << " " << GridValues.rows() << " " << resolution.transpose() << endl;
     meshProcessor.meshify(GridPoints, GridValues, resolution, MC_V, F);
+    meshProcessor.saveMesh("../mc_mesh.ply", MC_V, F);
     cout << "Marching Cubes: Successful." << endl;
   }
   
   if(from <= SMOOTH_MESH) {
     meshProcessor.smoothMesh(MC_V, F, SmoothV, delta);
+    meshProcessor.saveMesh("../smooth_mesh.ply", SmoothV, F);
     cout << "Smoothing: Successful." << endl;
   }
   
@@ -229,14 +261,24 @@ int main(int argc, char *argv[]) {
   menu.callback_draw_viewer_menu = [&]() {
     menu.draw_viewer_menu();
     if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if(ImGui::Combo("Display mode", (int*)(&display_mode), "NOISY_POINTS\0DENOISED_POINTS\0FLOOD_POINTS\0MC_MESH\0SMOOTH_MESH\0\0")) {
-        redraw = true;
+      if(ImGui::Combo("Display mode", (int*)(&display_mode), "NOISY_POINTS\0DENOISED_POINTS\0GRID_POINTS\0FLOOD_POINTS\0MC_MESH\0SMOOTH_MESH\0\0")) {
+        runPipeline((DisplayMode)0);
       }
     }
     if (ImGui::CollapsingHeader("Global Optimization parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if(ImGui::SliderInt("resolution", &res, 60, 150, "%d", 0)) {
+      if(ImGui::SliderInt("resolution XYZ", &res, min_res, max_res, "%d", 0)) {
+        resx = resy = resz = res;
         runPipeline(FLOOD_POINTS);
       }
+      // if(ImGui::SliderInt("resolution X", &resx, min_res, max_res, "%d", 0)) {
+      //   runPipeline(FLOOD_POINTS);
+      // }
+      // if(ImGui::SliderInt("resolution Y", &resy, min_res, max_res, "%d", 0)) {
+      //   runPipeline(FLOOD_POINTS);
+      // }
+      // if(ImGui::SliderInt("resolution Z", &resz, min_res, max_res, "%d", 0)) {
+      //   runPipeline(FLOOD_POINTS);
+      // }
       if(ImGui::InputFloat("delta", &delta, 0.0f, 0.0f, "%.8f")) {
         runPipeline(SMOOTH_MESH);
       }

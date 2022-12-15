@@ -52,8 +52,11 @@ public:
     }
 
     void meshify(Eigen::MatrixXd& grid_points, Eigen::VectorXd& grid_values, 
-        const Eigen::Vector3d& resolution, Eigen::MatrixXd& V, Eigen::MatrixXi& F) {
-        igl::copyleft::marching_cubes(grid_values, grid_points, resolution.x(), resolution.y(), resolution.z(), V, F);
+        const Eigen::Vector3d& resolution, Eigen::MatrixXd& V, Eigen::MatrixXi& F) const {
+        unsigned int resx = resolution.x();
+        unsigned int resy = resolution.y();
+        unsigned int resz = resolution.z();
+        igl::copyleft::marching_cubes(grid_values, grid_points, resx, resy, resz, V, F);
     }
     
 
@@ -75,11 +78,10 @@ public:
         getMinMaxBounds(pcd, min, max);
         Eigen::Vector3d extents = max - min;
         Eigen::Vector3d extents_inv = Eigen::Vector3d(1/extents.x(), 1/extents.y(), 1/extents.z());
-        size_t n = pcd.size();
         Eigen::Vector3d resolution_inv = Eigen::Vector3d(1/resolution.x(), 1/resolution.y(), 1/resolution.z());
         vector<vector<vector<uint8_t>>>* occupancy = new vector<vector<vector<uint8_t>>>(resolution.x(), 
             vector<vector<uint8_t>>(resolution.y(), vector<uint8_t>(resolution.z(), 0)));
-        for(int i = 0; i < n; i++) {
+        for(int i = 0; i < pcd.size(); i++) {
             Eigen::Vector3d point = (pcd[i] - min).cwiseProduct(extents_inv).cwiseProduct(resolution);
             int x_ = (int)point.x();
             int y_ = (int)point.y();
@@ -93,9 +95,7 @@ public:
                         int x = x_ + i;
                         int y = y_ + j;
                         int z = z_ + k;
-                        if(x >= 0 && x < resolution.x() && 
-                        y >= 0 && y < resolution.y() && 
-                        z >= 0 && z < resolution.z()) {
+                        if(inBounds(x, y, z, resolution)) {
                             (*occupancy)[x][y][z] = 1;
                         }
                     }
@@ -130,9 +130,7 @@ public:
                         int x = p.x() + i;
                         int y = p.y() + j;
                         int z = p.z() + k;
-                        if(x >= 0 && x < resolution.x() && 
-                        y >= 0 && y < resolution.y() && 
-                        z >= 0 && z < resolution.z()) {
+                        if(inBounds(x, y, z, resolution)) {
                             if(!(i == 0 && j == 0 && k == 0)) {
                                 short val = (*occupancy)[x][y][z];
                                 if(val == 0) {
@@ -164,9 +162,7 @@ public:
                                 int x_ = x + i;
                                 int y_ = y + j;
                                 int z_ = z + k;
-                                if(x_ >= 0 && x_ < resolution.x() && 
-                                y_ >= 0 && y_ < resolution.y() && 
-                                z_ >= 0 && z_ < resolution.z()) {
+                                if(inBounds(x_, y_, z_, resolution)) {
                                     if((*occupancy)[x_][y_][z_] == 2) {
                                         expanded_points.push_back(Eigen::Vector3i(x, y, z));
                                         found_neighbor = true;
@@ -183,12 +179,10 @@ public:
         }
 
         //Put the result in the appropriate data structures in preparation for marching cubes
-        //Also update the pcd, although from here on the pcd should not be relevant anymore
-        int N = resolution.x() * resolution.y() * resolution.z();
+        int N = (int)resolution.x() * (int)resolution.y() * (int)resolution.z();
         grid_points.resize(N, 3);
         grid_values.resize(N);
         grid_values.setOnes(); //points are outside the shape by default
-        bool dense = true;
         int ii = 0;
         inner_points_vec.clear();
         for(int x = 0; x < resolution.x(); x++) {
@@ -200,10 +194,8 @@ public:
 
                     bool found_neighbor = false;
                     if((*occupancy)[x][y][z] == 2) {
-                        if(dense) {
-                            grid_values(ii) = -2; //inner point
-                            inner_points_vec.push_back(w_p);
-                        }
+                        grid_values(ii) = -2; //inner point
+                        inner_points_vec.push_back(w_p);
                         continue;
                     }
                     for(int i = -1; i <= 1 && !found_neighbor; i++) {
@@ -212,9 +204,7 @@ public:
                                 int x_ = x + i;
                                 int y_ = y + j;
                                 int z_ = z + k;
-                                if(x_ >= 0 && x_ < resolution.x() && 
-                                y_ >= 0 && y_ < resolution.y() && 
-                                z_ >= 0 && z_ < resolution.z()) {
+                                if(inBounds(x_, y_, z_, resolution)) {
                                     if((*occupancy)[x_][y_][z_] == 2) {
                                         found_neighbor = true;
                                     }
@@ -235,8 +225,8 @@ public:
 private:
     void getMinMaxBounds(const PCD& pcd, Eigen::Vector3d& min, Eigen::Vector3d& max) const {
         double minx, miny, minz, maxx, maxy, maxz;
-        minx = miny = minz = std::numeric_limits<double>::max();
-        maxx = maxy = maxz = std::numeric_limits<double>::min();
+        minx = miny = minz = std::numeric_limits<double>::max() - 1;
+        maxx = maxy = maxz = -(std::numeric_limits<double>::max() - 1);
         for(const auto p : pcd) {
             minx = std::min(minx, p.x());
             miny = std::min(miny, p.y());
@@ -247,6 +237,7 @@ private:
         }
         min = Eigen::Vector3d(minx, miny, minz);
         max = Eigen::Vector3d(maxx, maxy, maxz);
+        //std::cout << min.transpose() << " -- " << max.transpose() << std::endl;
     }
 
     Eigen::Vector3d getCenter(const PCD& pcd) const {
@@ -257,6 +248,12 @@ private:
             center += p;
         }
         return center / pcd.size();
+    }
+
+    inline bool inBounds(int x, int y, int z, const Eigen::Vector3d& resolution) const {
+        return  x >= 0 && x < resolution.x() && 
+                y >= 0 && y < resolution.y() && 
+                z >= 0 && z < resolution.z();
     }
 
 };
