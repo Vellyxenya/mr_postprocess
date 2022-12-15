@@ -14,10 +14,6 @@
 #include <map>
 
 #include "utils.h"
-#include "loading.h"
-#include "processing.h"
-
-#include "registrator.h"
 #include "MeshProcessor.h"
 
 #include <open3d/geometry/PointCloud.h>
@@ -27,10 +23,6 @@ using namespace Eigen;
 using Viewer = igl::opengl::glfw::Viewer;
 
 Viewer viewer;
-
-///////////////////////////////
-
-Registrator registrator;
 MeshProcessor meshProcessor;
 
 Eigen::MatrixXd NoisyPoints;
@@ -305,6 +297,7 @@ void runPipeline(const DisplayMode from) {
 int main(int argc, char *argv[]) {
   if(argc < 2) {
     std::cout << "You must specify a path to an .xyz file" << std::endl;
+    std::cout << "For example, run: ./postprocess ../finaldenoisedboxdb.xyz" << std::endl;
     return 0;
   }
   input_file = argv[1];
