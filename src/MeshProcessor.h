@@ -144,7 +144,7 @@ public:
         }
         if(inner_points.size() == 0) {
             cout << "PCD SIZE: " << inner_points.size() << endl;
-            cout << "Resolution is too small" << endl;
+            //cout << "Resolution is too small" << endl;
             return false;
         }
 
@@ -178,6 +178,7 @@ public:
             (*occupancy)[p.x()][p.y()][p.z()] = 2;
         }
 
+        bool is_successful = true;
         //Put the result in the appropriate data structures in preparation for marching cubes
         int N = (int)resolution.x() * (int)resolution.y() * (int)resolution.z();
         grid_points.resize(N, 3);
@@ -196,6 +197,8 @@ public:
                     if((*occupancy)[x][y][z] == 2) {
                         grid_values(ii) = -2; //inner point
                         inner_points_vec.push_back(w_p);
+                        if(isCornerPoint(x, y, z, resolution))
+                            is_successful = false;
                         continue;
                     }
                     for(int i = -1; i <= 1 && !found_neighbor; i++) {
@@ -215,11 +218,13 @@ public:
                     if(found_neighbor) {
                         grid_values(ii) = -0.5; //inner point close to the surface
                         inner_points_vec.push_back(w_p);
+                        if(isCornerPoint(x, y, z, resolution))
+                            is_successful = false;
                     }
                 }
             }
         }
-        return true;
+        return is_successful;
     }
 
 private:
@@ -254,6 +259,17 @@ private:
         return  x >= 0 && x < resolution.x() && 
                 y >= 0 && y < resolution.y() && 
                 z >= 0 && z < resolution.z();
+    }
+
+    inline bool isCornerPoint(int x, int y, int z, const Eigen::Vector3d& resolution) const {
+        return  x == 0 && y == 0 && z == 0 ||
+                x == 0 && y == 0 && z == resolution.z() ||
+                x == 0 && y == resolution.y() && z == 0 ||
+                x == 0 && y == resolution.y() && z == resolution.z() ||
+                x == resolution.x() && y == 0 && z == 0 ||
+                x == resolution.x() && y == 0 && z == resolution.z() ||
+                x == resolution.x() && y == resolution.y() && z == 0 ||
+                x == resolution.x() && y == resolution.y() && z == resolution.z();
     }
 
 };

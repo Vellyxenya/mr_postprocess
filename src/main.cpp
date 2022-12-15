@@ -20,6 +20,8 @@
 #include "registrator.h"
 #include "MeshProcessor.h"
 
+#include <open3d/geometry/PointCloud.h>
+
 using namespace std;
 using namespace Eigen;
 using Viewer = igl::opengl::glfw::Viewer;
@@ -32,6 +34,7 @@ Registrator registrator;
 MeshProcessor meshProcessor;
 
 Eigen::MatrixXd NoisyPoints;
+Eigen::MatrixXd OutlierPoints;
 Eigen::MatrixXd DenoisedPoints;
 Eigen::MatrixXd FloodPoints;
 
@@ -44,27 +47,31 @@ Eigen::MatrixXd GridPoints;
 Eigen::VectorXd GridValues;
 
 PCD noisy_points;
+PCD outlier_points;
 PCD denoised_points;
 PCD flood_points;
 
 bool redraw = false;
 std::string input_file;
-int min_res = 20, max_res = 120;
+int min_res = 10, max_res = 100;
 
-enum DisplayMode { NOISY_POINTS, DENOISED_POINTS, GRID_POINTS, FLOOD_POINTS, MC_MESH, SMOOTH_MESH };
+enum DisplayMode { NOISY_POINTS, POINT_WITHOUT_OUTLIERS, DENOISED_POINTS, GRID_POINTS, FLOOD_POINTS, MC_MESH, SMOOTH_MESH };
 DisplayMode display_mode = SMOOTH_MESH;
 
 //Tweakable parameters
-int res = 60; //grid resolution
+int res = max_res; //grid resolution
 int resx = res, resy = res, resz = res;
 float delta = 0.00005; //Controls the smoothing amount
 bool score_denoise = false;
+int nb_neighbors = 16;
+double std_ratio = 0.8;
 
 ///////////////////////////////
 
 void setPointsToVisualize(const Eigen::MatrixXd& points, const Eigen::Vector3d color);
 void setMeshToShow(const Eigen::MatrixXd& V);
 void showNoisyPoints();
+void showPointsWithoutOutliers();
 void showDenoisedPoints();
 void showGridPoints();
 void showFloodPoints();
@@ -84,6 +91,9 @@ bool callback_pre_draw(Viewer& viewer) {
   switch(display_mode) {
     case NOISY_POINTS:
       showNoisyPoints();
+    break;
+    case POINT_WITHOUT_OUTLIERS:
+      showPointsWithoutOutliers();
     break;
     case DENOISED_POINTS:
       showDenoisedPoints();
@@ -143,6 +153,51 @@ void denoise(const std::string& path_to_denoise, PCD& denoised_points) {
   }
 }
 
+void slicePCD(open3d::geometry::PointCloud& pcd,
+                     std::vector<long unsigned int>& index) {
+    PCD new_points;
+    for (int i = 0; i < index.size(); ++i) {
+        new_points.push_back(pcd.points_[index[i]]);
+    }
+    pcd.points_ = new_points;
+}
+
+void remove_outliers(const PCD& points_with_outliers, PCD& points_without_outliers) {
+  open3d::geometry::PointCloud pcd(points_with_outliers);
+
+  if(nb_neighbors <= 0 || std_ratio <= 0) {
+    std::cout << "Nb neighbors and std_ratio must be positive" << endl;
+  } else {
+    std::vector<size_t> index = std::get<1>(pcd.RemoveStatisticalOutliers(nb_neighbors, std_ratio));
+    slicePCD(pcd, index);
+  }
+
+  points_without_outliers = pcd.points_;
+
+  // std::vector<int> labels = pcd.ClusterDBSCAN(0.013, 64);
+  // std::set<int> labels_unique;
+  // for (int i = 0; i < labels.size(); ++i) {
+  //   if (labels[i] >= 0) {
+  //     labels_unique.insert(labels[i]);
+  //   }
+  // }
+  // // some recording for each cluster
+  // std::vector<size_t> labels_num(labels_unique.size(), 0);
+  // std::vector<std::vector<size_t>> labels_index;
+  // for (int i = 0; i < labels_unique.size(); ++i) {
+  //   labels_index.push_back(std::vector<size_t>());
+  // }
+  // for (size_t i = 0; i < labels.size(); ++i) {
+  //   if (labels[i] >= 0) {
+  //     labels_num[labels[i]]++;
+  //     labels_index[labels[i]].push_back(i);
+  //   }
+  // }
+  // size_t argmax = std::distance(labels_num.begin(), std::max_element(labels_num.begin(), labels_num.end()));
+  // slicePCD(pcd, labels_index[argmax]);
+    
+}
+
 void setPointsToVisualize(const Eigen::MatrixXd& points, const Eigen::Vector3d color) {
   viewer.data().clear();
   viewer.data().add_points(points, color.transpose());
@@ -151,6 +206,10 @@ void setPointsToVisualize(const Eigen::MatrixXd& points, const Eigen::Vector3d c
 
 void showNoisyPoints() {
   setPointsToVisualize(NoisyPoints, Eigen::Vector3d(0.6, 0, 0.0));
+}
+
+void showPointsWithoutOutliers() {
+  setPointsToVisualize(OutlierPoints, Eigen::Vector3d(0.6, 0, 0.0));
 }
 
 void showDenoisedPoints() {
@@ -196,8 +255,9 @@ void showSmoothMesh() {
 
 int nb_runs = 0;
 void runPipeline(const DisplayMode from) {
-  cout << nb_runs << ": ================== RUNNING PIPELINE =======================" << endl;
+  cout << nb_runs << "==================== RUNNING PIPELINE (" << nb_runs << ") ====================" << endl;
   nb_runs++;
+  redraw = true;
 
   Eigen::Vector3d resolution(resx, resy, resz);
 
@@ -206,6 +266,12 @@ void runPipeline(const DisplayMode from) {
     NoisyPoints = vec_to_eigen(noisy_points);
     cout << "Reading Points: Successful." << endl;
   }
+
+  if(from <= POINT_WITHOUT_OUTLIERS) {
+    remove_outliers(noisy_points, outlier_points);
+    OutlierPoints = vec_to_eigen(outlier_points);
+    cout << "Outlier removal: Successful." << endl;
+  }
   
   if(from <= DENOISED_POINTS) {
     if(score_denoise) {
@@ -213,18 +279,32 @@ void runPipeline(const DisplayMode from) {
       DenoisedPoints = vec_to_eigen(denoised_points);
       cout << "Denoising: Successful." << endl;
     } else {
-      denoised_points = noisy_points;
-      DenoisedPoints = NoisyPoints;
+      denoised_points = outlier_points;
+      DenoisedPoints = OutlierPoints;
       cout << "Denoising: Skipped." << endl;
     }
   }
   
   if(from <= FLOOD_POINTS) {
-    bool success = meshProcessor.flood(denoised_points, resolution, GridPoints, GridValues, flood_points);
+    int ri = resolution.x();
+    bool success = false;
+    while(!success && ri > min_res) {
+      Eigen::Vector3d desired_resolution = Eigen::Vector3d(ri, ri, ri);
+      success = meshProcessor.flood(outlier_points, desired_resolution, GridPoints, GridValues, flood_points);
+      if(!success) {
+        ri--;
+      }
+    }
     FloodPoints = vec_to_eigen(flood_points);
-    if(success)
+    if(success) {
+      if(ri != (int)resolution.x()) {
+        cout << "Failed with desired resolution " << (int)resolution.x() << 
+          " but succeeded with resolution " << ri << ". Using " << ri << " instead..." << endl;
+        resolution = Eigen::Vector3d(ri, ri, ri);
+        res = resx = resy = resz = ri;
+      }
       cout << "Flooding: Successful." << endl;
-    else {
+    } else {
       cout << "Flooding: Failed." << endl;
       cout << "Aborting pipeline." << endl;
       return;
@@ -232,7 +312,6 @@ void runPipeline(const DisplayMode from) {
   }
   
   if(from <= MC_MESH) {
-    cout << GridPoints.rows() << " " << GridValues.rows() << " " << resolution.transpose() << endl;
     meshProcessor.meshify(GridPoints, GridValues, resolution, MC_V, F);
     meshProcessor.saveMesh("../mc_mesh.ply", MC_V, F);
     cout << "Marching Cubes: Successful." << endl;
@@ -243,8 +322,6 @@ void runPipeline(const DisplayMode from) {
     meshProcessor.saveMesh("../smooth_mesh.ply", SmoothV, F);
     cout << "Smoothing: Successful." << endl;
   }
-  
-  redraw = true;
 }
 
 int main(int argc, char *argv[]) {
@@ -261,11 +338,11 @@ int main(int argc, char *argv[]) {
   menu.callback_draw_viewer_menu = [&]() {
     menu.draw_viewer_menu();
     if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if(ImGui::Combo("Display mode", (int*)(&display_mode), "NOISY_POINTS\0DENOISED_POINTS\0GRID_POINTS\0FLOOD_POINTS\0MC_MESH\0SMOOTH_MESH\0\0")) {
+      if(ImGui::Combo("Display mode", (int*)(&display_mode), "NOISY_POINTS\0POINT_WITHOUT_OUTLIERS\0DENOISED_POINTS\0GRID_POINTS\0FLOOD_POINTS\0MC_MESH\0SMOOTH_MESH\0\0")) {
         runPipeline((DisplayMode)0);
       }
     }
-    if (ImGui::CollapsingHeader("Global Optimization parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::CollapsingHeader("Hyper parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
       if(ImGui::SliderInt("resolution XYZ", &res, min_res, max_res, "%d", 0)) {
         resx = resy = resz = res;
         runPipeline(FLOOD_POINTS);
@@ -284,6 +361,12 @@ int main(int argc, char *argv[]) {
       }
       if(ImGui::Checkbox("score-denoise", &score_denoise)) {
         runPipeline(DENOISED_POINTS);
+      }
+      if(ImGui::SliderInt("nb neighbors", &nb_neighbors, 3, 64, "%d", 0)) {
+        runPipeline(POINT_WITHOUT_OUTLIERS);
+      }
+      if(ImGui::InputDouble("sd ratio", &std_ratio, 0.0f, 0.0f, "%.5f")) {
+        runPipeline(POINT_WITHOUT_OUTLIERS);
       }
     }
   };
