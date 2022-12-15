@@ -283,13 +283,13 @@ void runPipeline(const DisplayMode from) {
   
   if(from <= MC_MESH) {
     meshProcessor.meshify(GridPoints, GridValues, resolution, MC_V, F);
-    meshProcessor.saveMesh("../mc_mesh.ply", MC_V, F);
+    meshProcessor.saveMesh("../out/mc_mesh.ply", MC_V, F);
     cout << "Marching Cubes: Successful." << endl;
   }
   
   if(from <= SMOOTH_MESH) {
     meshProcessor.smoothMesh(MC_V, F, SmoothV, delta);
-    meshProcessor.saveMesh("../smooth_mesh.ply", SmoothV, F);
+    meshProcessor.saveMesh("../out/smooth_mesh.ply", SmoothV, F);
     cout << "Smoothing: Successful." << endl;
   }
 }
