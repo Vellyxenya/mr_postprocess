@@ -191,11 +191,11 @@ void setPointsToVisualize(const Eigen::MatrixXd& points, const Eigen::Vector3d c
 }
 
 void showNoisyPoints() {
-  setPointsToVisualize(NoisyPoints, Eigen::Vector3d(0.6, 0, 0.0));
+  setPointsToVisualize(NoisyPoints, Eigen::Vector3d(0.3, 0, 0.5));
 }
 
 void showPointsWithoutOutliers() {
-  setPointsToVisualize(OutlierPoints, Eigen::Vector3d(0.6, 0, 0.0));
+  setPointsToVisualize(OutlierPoints, Eigen::Vector3d(0.15, 0.15, 0.4));
 }
 
 void showGridPoints() {
@@ -213,7 +213,7 @@ void showGridPoints() {
 }
 
 void showFloodPoints() {
-  setPointsToVisualize(FloodPoints, Eigen::Vector3d(0.6, 0, 0.3));
+  setPointsToVisualize(FloodPoints, Eigen::Vector3d(0.2, 1.0, 0.8));
 }
 
 void setMeshToShow(const Eigen::MatrixXd& V) {
@@ -330,7 +330,7 @@ int main(int argc, char *argv[]) {
       if(ImGui::InputFloat("delta", &delta, 0.0f, 0.0f, "%.8f")) {
         runPipeline(SMOOTH_MESH);
       }
-      if(ImGui::SliderInt("nb neighbors", &nb_neighbors, 3, 64, "%d", 0)) {
+      if(ImGui::SliderInt("nb neighbors", &nb_neighbors, 3, 80, "%d", 0)) {
         runPipeline(POINT_WITHOUT_OUTLIERS);
       }
       if(ImGui::InputDouble("sd ratio", &std_ratio, 0.0f, 0.0f, "%.5f")) {

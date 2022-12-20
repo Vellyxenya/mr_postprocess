@@ -25,6 +25,7 @@ public:
     //Using default params
     MeshProcessor() {}
 
+    //Run Implicit Laplacian Smoothing
     void smoothMesh(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F, Eigen::MatrixXd& V_impLap, float delta) {
         V_impLap = V;
         Eigen::SparseMatrix<double> L;
@@ -241,7 +242,6 @@ private:
         }
         min = Eigen::Vector3d(minx, miny, minz);
         max = Eigen::Vector3d(maxx, maxy, maxz);
-        //std::cout << min.transpose() << " -- " << max.transpose() << std::endl;
     }
 
     Eigen::Vector3d getCenter(const PCD& pcd) const {
